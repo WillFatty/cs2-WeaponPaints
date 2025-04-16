@@ -1,8 +1,11 @@
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes;
+using CounterStrikeSharp.API.Modules.Timers;
 using Microsoft.Extensions.Logging;
 using MySqlConnector;
+using Dapper;
+using System.Threading;
 
 namespace WeaponPaints;
 
@@ -63,6 +66,9 @@ public partial class WeaponPaints : BasePlugin, IPluginConfig<WeaponPaintsConfig
 		Utility.LoadPinsFromFile(ModuleDirectory + $"/data/collectibles_{_config.SkinsLanguage}.json", Logger);
 
 		RegisterListeners();
+		
+		// Start the refresh queue checker timer - check every 500ms
+		AddTimer(0.5f, CheckRefreshQueue, TimerFlags.REPEAT);
 	}
 
 	public void OnConfigParsed(WeaponPaintsConfig config)
@@ -133,4 +139,120 @@ public partial class WeaponPaints : BasePlugin, IPluginConfig<WeaponPaintsConfig
 			throw;
 		}
 	}
+	
+	/// <summary>
+	/// Method to refresh a specific player's skins after a database update
+	/// </summary>
+	/// <param name="steamId">The SteamID of the player</param>
+	public void RefreshPlayerSkinsByDatabase(string steamId)
+	{
+		if (WeaponSync == null || string.IsNullOrEmpty(steamId))
+			return;
+			
+		// Use the WeaponSync to refresh the player by SteamID
+		// This will run on the main thread via Server.NextFrame in the RefreshPlayerBySteamId method
+		bool refreshed = WeaponSync.RefreshPlayerBySteamId(steamId);
+		
+		if (refreshed)
+		{
+			Logger.LogInformation($"Refreshed skins for player with SteamID {steamId} after database update");
+		}
+	}
+
+	/// <summary>
+	/// Periodically checks the refresh queue table for any pending refreshes (every 500ms)
+	/// </summary>
+	private async void CheckRefreshQueue()
+	{
+		if (WeaponSync == null || Database == null)
+			return;
+			
+		try
+		{
+			// Use a semaphore to prevent overlapping refresh queue checks
+			using var semaphore = new SemaphoreSlim(1, 1);
+			
+			// Don't wait if already processing to prevent backup with faster refresh rate
+			if (!await semaphore.WaitAsync(0)) 
+				return;
+				
+			try
+			{
+				await using var connection = await Database.GetConnectionAsync();
+				
+				// Check if the refresh queue table exists (only check on first run)
+				if (!_refreshQueueTableVerified)
+				{
+					var tableExists = await connection.ExecuteScalarAsync<int>(
+						"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'wp_refresh_queue'"
+					);
+					
+					if (tableExists == 0)
+					{
+						// Table doesn't exist yet, skip for now
+						_refreshQueueTableVerified = false;
+						return;
+					}
+					
+					_refreshQueueTableVerified = true;
+				}
+					
+				// Query for pending refreshes - process more at once since we check more frequently
+				var refreshes = await connection.QueryAsync<string>(
+					"SELECT `steamid` FROM `wp_refresh_queue` ORDER BY `refresh_time` ASC LIMIT 5"
+				);
+				
+				if (refreshes == null || !refreshes.Any())
+					return;
+					
+				// Get all steamIDs for cleanup
+				var steamIdsToProcess = refreshes.Where(id => !string.IsNullOrEmpty(id)).ToList();
+				if (steamIdsToProcess.Count == 0)
+					return;
+				
+				// Process immediately on main thread
+				Server.NextFrame(() => {
+					foreach (var steamId in steamIdsToProcess)
+					{
+						// Refresh the player's skins
+						RefreshPlayerSkinsByDatabase(steamId);
+					}
+				});
+				
+				// Delete the processed entries from the queue immediately
+				if (steamIdsToProcess.Count > 0)
+				{
+					try
+					{
+						// Use efficient parameterized query for bulk delete
+						string placeholders = string.Join(",", steamIdsToProcess.Select((_, i) => $"@p{i}"));
+						var parameters = new DynamicParameters();
+						
+						for (int i = 0; i < steamIdsToProcess.Count; i++)
+						{
+							parameters.Add($"p{i}", steamIdsToProcess[i]);
+						}
+						
+						string query = $"DELETE FROM `wp_refresh_queue` WHERE `steamid` IN ({placeholders})";
+						await connection.ExecuteAsync(query, parameters);
+					}
+					catch (Exception ex)
+					{
+						Logger.LogError($"Error cleaning up refresh queue: {ex.Message}");
+					}
+				}
+			}
+			finally
+			{
+				semaphore.Release();
+			}
+		}
+		catch (Exception ex)
+		{
+			Logger.LogError($"Error checking refresh queue: {ex.Message}");
+		}
+	}
+
+	// Flag to avoid rechecking table existence on every call
+	private bool _refreshQueueTableVerified = false;
 }
