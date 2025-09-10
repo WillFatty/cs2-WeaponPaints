@@ -254,7 +254,7 @@ namespace WeaponPaints
 			return false;
 		}
 
-		public void RefreshWeapons(CCSPlayerController? player)
+        public void RefreshWeapons(CCSPlayerController? player)
 		{
 			if (!_gBCommandsAllowed) return;
 			if (player == null || !player.IsValid || player.PlayerPawn.Value == null || (LifeState_t)player.LifeState != LifeState_t.LIFE_ALIVE)
@@ -273,7 +273,6 @@ namespace WeaponPaints
 			
 			Dictionary<string, List<(int, int)>> weaponsWithAmmo = [];
 
-			// Batch process all weapons first to reduce redundant server commands
 			foreach (var weapon in weapons)
 			{
 				if (!weapon.IsValid || weapon.Value == null ||
@@ -286,7 +285,6 @@ namespace WeaponPaints
 				if (!weapon.Value.OwnerEntity.IsValid) continue;
 				if (gun.Entity == null) continue;
 				if (!gun.IsValid) continue;
-				if (!gun.VisibleinPVS) continue;
 
 				try
 				{
@@ -327,37 +325,32 @@ namespace WeaponPaints
 				}
 			}
 
-			// Use a shorter timer for faster weapon refresh
-			AddTimer(0.15f, () =>
-			{
-				if (!_gBCommandsAllowed) return;
-
-				// Batch give all weapons at once to minimize re-syncs
-				if (!PlayerHasKnife(player) && hasKnife)
-				{
-					var newKnife = new CBasePlayerWeapon(player.GiveNamedItem(CsItem.Knife));
-					newKnife.AddEntityIOEvent("Kill", newKnife, null, "", 0.01f);
-					var newWeapon = new CBasePlayerWeapon(player.GiveNamedItem(CsItem.USP));
-					player.GiveNamedItem(CsItem.Knife);
-					player.ExecuteClientCommand("slot3");
-					newWeapon.AddEntityIOEvent("Kill", newWeapon, null, "", 0.01f);
-				}
-
-				// Give all weapons in a batch operation
-				foreach (var entry in weaponsWithAmmo)
-				{
-					foreach (var ammo in entry.Value)
+			AddTimer(0.23f, () =>
 					{
-						var newWeapon = new CBasePlayerWeapon(player.GiveNamedItem(entry.Key));
-						
-						// Use single frame update for all weapon properties
-						Server.NextFrame(() =>
+						if (!_gBCommandsAllowed) return;
+
+						if (!PlayerHasKnife(player) && hasKnife)
+						{
+							var newKnife = new CBasePlayerWeapon(player.GiveNamedItem(CsItem.Knife));
+							newKnife.AddEntityIOEvent("Kill", newKnife, null, "", 0.01f);
+							var newWeapon = new CBasePlayerWeapon(player.GiveNamedItem(CsItem.USP));
+							player.GiveNamedItem(CsItem.Knife);
+							player.ExecuteClientCommand("slot3");
+							newWeapon.AddEntityIOEvent("Kill", newWeapon, null, "", 0.01f);
+						}
+
+						foreach (var entry in weaponsWithAmmo)
+						{
+							foreach (var ammo in entry.Value)
+							{
+								var newWeapon = new CBasePlayerWeapon(player.GiveNamedItem(entry.Key));
+								Server.NextFrame(() =>
 						{
 							try
 							{
-								// Set all weapon properties at once
 								newWeapon.Clip1 = ammo.Item1;
 								newWeapon.ReserveAmmo[0] = ammo.Item2;
+
 								IncrementWearForWeaponWithStickers(player, newWeapon);
 							}
 							catch (Exception ex)
@@ -365,9 +358,9 @@ namespace WeaponPaints
 								Logger.LogWarning("Error setting weapon properties: " + ex.Message);
 							}
 						});
-					}
-				}
-			}, TimerFlags.STOP_ON_MAPCHANGE);
+							}
+						}
+					}, TimerFlags.STOP_ON_MAPCHANGE);
 		}
 
 		public void GivePlayerGloves(CCSPlayerController player)
@@ -385,8 +378,7 @@ namespace WeaponPaints
 				pawn.SetModel(model);
 			}
 
-			// Use a shorter timer for faster glove refresh
-			Instance.AddTimer(0.05f, () =>
+			Instance.AddTimer(0.08f, () =>
 			{
 				CEconItemView item = pawn.EconGloves;
 				try
@@ -407,14 +399,13 @@ namespace WeaponPaints
 					item.ItemIDLow = 16384 & 0xFFFFFFFF;
 					item.ItemIDHigh = 16384;
 
-					// Set all attributes in a single batch
 					CAttributeListSetOrAddAttributeValueByName.Invoke(item.NetworkedDynamicAttributes.Handle, "set item texture prefab", weaponInfo.Paint);
 					CAttributeListSetOrAddAttributeValueByName.Invoke(item.NetworkedDynamicAttributes.Handle, "set item texture seed", weaponInfo.Seed);
 					CAttributeListSetOrAddAttributeValueByName.Invoke(item.NetworkedDynamicAttributes.Handle, "set item texture wear", weaponInfo.Wear);
 
 					item.Initialized = true;
 
-					SetBodygroup(pawn.Handle, "default_gloves", 1);
+					SetBodygroup(pawn, "default_gloves", 1);
 				}
 				catch (Exception) { }
 			}, TimerFlags.STOP_ON_MAPCHANGE);
@@ -438,13 +429,15 @@ namespace WeaponPaints
 			return int.TryParse(randomWeapon["paint"]?.ToString(), out var paintValue) ? paintValue : 0;
 		}
 
-		private static void SubclassChange(CBasePlayerWeapon weapon, ushort itemD)
+		//xstage idea on css discord
+		public static void SubclassChange(CBasePlayerWeapon weapon, ushort itemD)
 		{
-			var subclassChangeFunc = VirtualFunction.Create<nint, string, int>(
-				GameData.GetSignature("ChangeSubclass")
-			);
+			weapon.AcceptInput("ChangeSubclass", value: itemD.ToString());
+		}
 
-			subclassChangeFunc(weapon.Handle, itemD.ToString());
+		public static void SetBodygroup(CCSPlayerPawn pawn, string group, int value)
+		{
+			pawn.AcceptInput("SetBodygroup", value:$"{group},{value}");
 		}
 
 		private static void UpdateWeaponMeshGroupMask(CBaseEntity weapon, bool isLegacy = false)
@@ -462,16 +455,9 @@ namespace WeaponPaints
 		private static void UpdatePlayerWeaponMeshGroupMask(CCSPlayerController player, CBasePlayerWeapon weapon, bool isLegacy)
 		{
 			UpdateWeaponMeshGroupMask(weapon, isLegacy);
-
-			var viewModel = GetPlayerViewModel(player);
-			if (viewModel == null || viewModel.Weapon.Value == null ||
-			    viewModel.Weapon.Value.Index != weapon.Index) return;
-			
-			UpdateWeaponMeshGroupMask(viewModel, isLegacy);
-			Utilities.SetStateChanged(viewModel, "CBaseEntity", "m_CBodyComponent");
 		}
 
-		public static void GivePlayerAgent(CCSPlayerController player)
+        public static void GivePlayerAgent(CCSPlayerController player)
 		{
 			if (!GPlayersAgent.TryGetValue(player.Slot, out var value)) return;
 
@@ -495,7 +481,7 @@ namespace WeaponPaints
 			}
 		}
 
-		public static void GivePlayerMusicKit(CCSPlayerController player)
+        public static void GivePlayerMusicKit(CCSPlayerController player)
 		{
 			if (player.IsBot) return;
 			if (!GPlayersMusic.TryGetValue(player.Slot, out var musicInfo) ||
@@ -513,7 +499,7 @@ namespace WeaponPaints
 			// Utilities.SetStateChanged(player, "CCSPlayerController", "m_iMusicKitMVPs");
 		}
 
-		public static void GivePlayerPin(CCSPlayerController player)
+        public static void GivePlayerPin(CCSPlayerController player)
 		{
 			if (!GPlayersPin.TryGetValue(player.Slot, out var pinInfo) ||
 			    !pinInfo.TryGetValue(player.Team, out var pinId)) return;
@@ -564,16 +550,6 @@ namespace WeaponPaints
 			if (!pawn.IsValid || !pawn.Controller.IsValid || pawn.Controller.Value == null) return null;
 			var player = new CCSPlayerController(pawn.Controller.Value.Handle);
 			return !Utility.IsPlayerValid(player) ? null : player;
-		}
-
-		private static unsafe CBaseViewModel? GetPlayerViewModel(CCSPlayerController player)
-		{
-			if (player.PlayerPawn.Value == null || player.PlayerPawn.Value.ViewModelServices == null) return null;
-			CCSPlayer_ViewModelServices viewModelServices = new(player.PlayerPawn.Value.ViewModelServices!.Handle);
-			var ptr = viewModelServices.Handle + Schema.GetSchemaOffset("CCSPlayer_ViewModelServices", "m_hViewModel");
-			var references = MemoryMarshal.CreateSpan(ref ptr, 3);
-			var viewModel = (CHandle<CBaseViewModel>)Activator.CreateInstance(typeof(CHandle<CBaseViewModel>), references[0])!;
-			return viewModel.Value == null ? null : viewModel.Value;
 		}
 
 		private static bool HasChangedKnife(CCSPlayerController player, out string? knifeValue)

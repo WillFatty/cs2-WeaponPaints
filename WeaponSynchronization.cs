@@ -3,11 +3,6 @@ using MySqlConnector;
 using System.Collections.Concurrent;
 using CounterStrikeSharp.API.Modules.Utils;
 using System.Globalization;
-using CounterStrikeSharp.API;
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using CounterStrikeSharp.API.Core;
 
 namespace WeaponPaints;
 
@@ -26,48 +21,29 @@ internal class WeaponSynchronization
 	{
 		try
 		{
-			if (player == null || string.IsNullOrEmpty(player.SteamId))
-			{
-				Utility.Log("Cannot retrieve player data: Player info is null or SteamID is empty");
-				return;
-			}
-			
-			// Use a single database connection for all queries for better consistency
 			await using var connection = await _database.GetConnectionAsync();
-			
-			// Store the tasks for all data retrieval operations
-			var dataTasks = new List<Task>();
-			
-			// Retrieve all player data in parallel
+
 			if (_config.Additional.KnifeEnabled)
-				await GetKnifeFromDatabaseAsync(player, connection);
-			
+				GetKnifeFromDatabase(player, connection);
 			if (_config.Additional.GloveEnabled)
-				await GetGloveFromDatabaseAsync(player, connection);
-				
+				GetGloveFromDatabase(player, connection);
 			if (_config.Additional.AgentEnabled)
-				await GetAgentFromDatabaseAsync(player, connection);
-				
+				GetAgentFromDatabase(player, connection);
 			if (_config.Additional.MusicEnabled)
-				await GetMusicFromDatabaseAsync(player, connection);
-				
+				GetMusicFromDatabase(player, connection);
 			if (_config.Additional.SkinEnabled)
-				await GetWeaponPaintsFromDatabaseAsync(player, connection);
-				
+				GetWeaponPaintsFromDatabase(player, connection);
 			if (_config.Additional.PinsEnabled)
-				await GetPinsFromDatabaseAsync(player, connection);
-				
-			// Ensure all data is loaded before proceeding
-			Utility.Log($"Successfully retrieved all data for player {player.SteamId}");
+				GetPinsFromDatabase(player, connection);
 		}
 		catch (Exception ex)
 		{
 			// Log the exception or handle it appropriately
-			Utility.Log($"An error occurred in GetPlayerData: {ex.Message}");
+			Console.WriteLine($"An error occurred: {ex.Message}");
 		}
 	}
 
-	private async Task GetKnifeFromDatabaseAsync(PlayerInfo? player, MySqlConnection connection)
+	private void GetKnifeFromDatabase(PlayerInfo? player, MySqlConnection connection)
 	{
 		try
 		{
@@ -75,7 +51,7 @@ internal class WeaponSynchronization
 				return;
 
 			const string query = "SELECT `knife`, `weapon_team` FROM `wp_player_knife` WHERE `steamid` = @steamid ORDER BY `weapon_team` ASC";
-			var rows = await connection.QueryAsync<dynamic>(query, new { steamid = player.SteamId }); // Retrieve all records for the player
+			var rows = connection.Query<dynamic>(query, new { steamid = player.SteamId }); // Retrieve all records for the player
 
 			foreach (var row in rows)
 			{
@@ -90,7 +66,7 @@ internal class WeaponSynchronization
 					_ => CsTeam.None,
 				};
 
-				// Get or create entries for the player's slot
+				// Get or create entries for the player’s slot
 				var playerKnives = WeaponPaints.GPlayersKnife.GetOrAdd(player.Slot, _ => new ConcurrentDictionary<CsTeam, string>());
 
 				if (weaponTeam == CsTeam.None)
@@ -108,12 +84,11 @@ internal class WeaponSynchronization
 		}
 		catch (Exception ex)
 		{
-			Utility.Log($"An error occurred in GetKnifeFromDatabaseAsync: {ex.Message}");
-			throw; // Re-throw to ensure caller knows there was an error
+			Utility.Log($"An error occurred in GetKnifeFromDatabase: {ex.Message}");
 		}
 	}
 
-	private async Task GetGloveFromDatabaseAsync(PlayerInfo? player, MySqlConnection connection)
+	private void GetGloveFromDatabase(PlayerInfo? player, MySqlConnection connection)
 	{
 		try
 		{
@@ -121,7 +96,7 @@ internal class WeaponSynchronization
 				return;
 
 			const string query = "SELECT `weapon_defindex`, `weapon_team` FROM `wp_player_gloves` WHERE `steamid` = @steamid ORDER BY `weapon_team` ASC";
-			var rows = await connection.QueryAsync<dynamic>(query, new { steamid = player.SteamId }); // Retrieve all records for the player
+			var rows = connection.Query<dynamic>(query, new { steamid = player.SteamId }); // Retrieve all records for the player
 
 			foreach (var row in rows)
 			{
@@ -136,7 +111,7 @@ internal class WeaponSynchronization
 					_ => CsTeam.None,
 				};
 
-				// Get or create entries for the player's slot
+				// Get or create entries for the player’s slot
 
 				if (weaponTeam == CsTeam.None)
 				{
@@ -153,12 +128,11 @@ internal class WeaponSynchronization
 		}
 		catch (Exception ex)
 		{
-			Utility.Log($"An error occurred in GetGloveFromDatabaseAsync: {ex.Message}");
-			throw;
+			Utility.Log($"An error occurred in GetGlovesFromDatabase: {ex.Message}");
 		}
 	}
 
-	private async Task GetAgentFromDatabaseAsync(PlayerInfo? player, MySqlConnection connection)
+	private void GetAgentFromDatabase(PlayerInfo? player, MySqlConnection connection)
 	{
 		try
 		{
@@ -166,7 +140,7 @@ internal class WeaponSynchronization
 				return;
 
 			const string query = "SELECT `agent_ct`, `agent_t` FROM `wp_player_agents` WHERE `steamid` = @steamid";
-			var agentData = await connection.QueryFirstOrDefaultAsync<(string, string)>(query, new { steamid = player.SteamId });
+			var agentData = connection.QueryFirstOrDefault<(string, string)>(query, new { steamid = player.SteamId });
 
 			if (agentData == default) return;
 			var agentCT = agentData.Item1;
@@ -182,12 +156,11 @@ internal class WeaponSynchronization
 		}
 		catch (Exception ex)
 		{
-			Utility.Log($"An error occurred in GetAgentFromDatabaseAsync: {ex.Message}");
-			throw;
+			Utility.Log($"An error occurred in GetAgentFromDatabase: {ex.Message}");
 		}
 	}
 
-	private async Task GetWeaponPaintsFromDatabaseAsync(PlayerInfo? player, MySqlConnection connection)
+	private void GetWeaponPaintsFromDatabase(PlayerInfo? player, MySqlConnection connection)
 	{
 		try
 		{
@@ -197,8 +170,10 @@ internal class WeaponSynchronization
 			var playerWeapons = WeaponPaints.GPlayerWeaponsInfo.GetOrAdd(player.Slot,
 				_ => new ConcurrentDictionary<CsTeam, ConcurrentDictionary<int, WeaponInfo>>());
 
+			// var weaponInfos = new ConcurrentDictionary<int, WeaponInfo>();
+
 			const string query = "SELECT * FROM `wp_player_skins` WHERE `steamid` = @steamid ORDER BY `weapon_team` ASC";
-			var playerSkins = await connection.QueryAsync<dynamic>(query, new { steamid = player.SteamId });
+			var playerSkins = connection.Query<dynamic>(query, new { steamid = player.SteamId });
 
 			foreach (var row in playerSkins)
 			{
@@ -308,16 +283,19 @@ internal class WeaponSynchronization
 					var teamWeapons = playerWeapons.GetOrAdd(weaponTeam, _ => new ConcurrentDictionary<int, WeaponInfo>());
 					teamWeapons[weaponDefIndex] = weaponInfo;
 				}
+
+				// weaponInfos[weaponDefIndex] = weaponInfo;
 			}
+
+			// WeaponPaints.GPlayerWeaponsInfo[player.Slot][weaponTeam] = weaponInfos;
 		}
 		catch (Exception ex)
 		{
-			Utility.Log($"An error occurred in GetWeaponPaintsFromDatabaseAsync: {ex.Message}");
-			throw;
+			Utility.Log($"An error occurred in GetWeaponPaintsFromDatabase: {ex.Message}");
 		}
 	}
 
-	private async Task GetMusicFromDatabaseAsync(PlayerInfo? player, MySqlConnection connection)
+	private void GetMusicFromDatabase(PlayerInfo? player, MySqlConnection connection)
 	{
 		try
 		{
@@ -325,7 +303,7 @@ internal class WeaponSynchronization
 				return;
 
 			const string query = "SELECT `music_id`, `weapon_team` FROM `wp_player_music` WHERE `steamid` = @steamid ORDER BY `weapon_team` ASC";
-			var rows = await connection.QueryAsync<dynamic>(query, new { steamid = player.SteamId }); // Retrieve all records for the player
+			var rows = connection.Query<dynamic>(query, new { steamid = player.SteamId }); // Retrieve all records for the player
 
 			foreach (var row in rows)
 			{
@@ -340,7 +318,7 @@ internal class WeaponSynchronization
 					_ => CsTeam.None,
 				};
 
-				// Get or create entries for the player's slot
+				// Get or create entries for the player’s slot
 				var playerMusic = WeaponPaints.GPlayersMusic.GetOrAdd(player.Slot, _ => new ConcurrentDictionary<CsTeam, ushort>());
 
 				if (weaponTeam == CsTeam.None)
@@ -358,12 +336,11 @@ internal class WeaponSynchronization
 		}
 		catch (Exception ex)
 		{
-			Utility.Log($"An error occurred in GetMusicFromDatabaseAsync: {ex.Message}");
-			throw;
+			Utility.Log($"An error occurred in GetMusicFromDatabase: {ex.Message}");
 		}
 	}
 
-	private async Task GetPinsFromDatabaseAsync(PlayerInfo? player, MySqlConnection connection)
+	private void GetPinsFromDatabase(PlayerInfo? player, MySqlConnection connection)
 	{
 		try
 		{
@@ -371,7 +348,7 @@ internal class WeaponSynchronization
 				return;
 
 			const string query = "SELECT `id`, `weapon_team` FROM `wp_player_pins` WHERE `steamid` = @steamid ORDER BY `weapon_team` ASC";
-			var rows = await connection.QueryAsync<dynamic>(query, new { steamid = player.SteamId }); // Retrieve all records for the player
+			var rows = connection.Query<dynamic>(query, new { steamid = player.SteamId }); // Retrieve all records for the player
 
 			foreach (var row in rows)
 			{
@@ -386,7 +363,7 @@ internal class WeaponSynchronization
 					_ => CsTeam.None,
 				};
 
-				// Get or create entries for the player's slot
+				// Get or create entries for the player’s slot
 				var playerPins = WeaponPaints.GPlayersPin.GetOrAdd(player.Slot, _ => new ConcurrentDictionary<CsTeam, ushort>());
 
 				if (weaponTeam == CsTeam.None)
@@ -404,8 +381,7 @@ internal class WeaponSynchronization
 		}
 		catch (Exception ex)
 		{
-			Utility.Log($"An error occurred in GetPinsFromDatabaseAsync: {ex.Message}");
-			throw;
+			Utility.Log($"An error occurred in GetPinsFromDatabase: {ex.Message}");
 		}
 	}
 
@@ -424,9 +400,6 @@ internal class WeaponSynchronization
 			{
 				await connection.ExecuteAsync(query, new { steamid = player.SteamId, team, newKnife = knife });
 			}
-
-            // Refresh the player's weapons after the change
-            WeaponPaints.Database?.RefreshPlayerWeaponsIfChanged(player.SteamId);
 		}
 		catch (Exception e)
 		{
@@ -460,9 +433,6 @@ internal class WeaponSynchronization
 					gloveDefIndex 
 				});
 			}
-			
-			// Refresh the player's weapons after the change
-			 WeaponPaints.Database?.RefreshPlayerWeaponsIfChanged(player.SteamId);
 		}
 		catch (Exception e)
 		{
@@ -487,9 +457,6 @@ internal class WeaponSynchronization
 			await using var connection = await _database.GetConnectionAsync();
 
 			await connection.ExecuteAsync(query, new { steamid = player.SteamId, agent_ct = WeaponPaints.GPlayersAgent[player.Slot].CT, agent_t = WeaponPaints.GPlayersAgent[player.Slot].T });
-			
-			// Refresh the player's weapons after the change
-			WeaponPaints.Database?.RefreshPlayerWeaponsIfChanged(player.SteamId);
 		}
 		catch (Exception e)
 		{
@@ -544,9 +511,6 @@ internal class WeaponSynchronization
 					await connection.ExecuteAsync(query, parameters);
 				}
 			}
-			
-			// Refresh the player's weapons after the change
-			WeaponPaints.Database?.RefreshPlayerWeaponsIfChanged(player.SteamId);
 		}
 		catch (Exception e)
 		{
@@ -569,9 +533,6 @@ internal class WeaponSynchronization
 			{
 				await connection.ExecuteAsync(query, new { steamid = player.SteamId, team, newMusic = music });
 			}
-			
-			// Refresh the player's weapons after the change
-			WeaponPaints.Database?.RefreshPlayerWeaponsIfChanged(player.SteamId);
 		}
 		catch (Exception e)
 		{
@@ -594,9 +555,6 @@ internal class WeaponSynchronization
 			{
 				await connection.ExecuteAsync(query, new { steamid = player.SteamId, team, newPin = pin });
 			}
-			
-			// Refresh the player's weapons after the change
-			WeaponPaints.Database?.RefreshPlayerWeaponsIfChanged(player.SteamId);
 		}
 		catch (Exception e)
 		{
@@ -618,120 +576,55 @@ internal class WeaponSynchronization
 	        // Check if player's slot exists in GPlayerWeaponsInfo
 	        if (!WeaponPaints.GPlayerWeaponsInfo.TryGetValue(player.Slot, out var teamWeaponsInfo))
 	            return;
-	            
-	        // Process each team's weapons
-	        foreach (var (teamId, weaponsInfo) in teamWeaponsInfo)
+	        
+	        // Iterate through each team in the player's weapon info
+	        foreach (var teamInfo in teamWeaponsInfo)
 	        {
-	            foreach (var (weaponDefIndex, weaponInfo) in weaponsInfo)
+	            // Retrieve weaponInfos for the current team
+	            var weaponInfos = teamInfo.Value;
+
+	            // Get StatTrak weapons for the current team
+	            var statTrakWeapons = weaponInfos
+		            .ToDictionary(
+			            w => w.Key, 
+			            w => (w.Value.StatTrak, w.Value.StatTrakCount) // Store both StatTrak and StatTrakCount in a tuple
+		            );
+
+	            // Check if there are StatTrak weapons to sync
+	            if (statTrakWeapons.Count == 0) continue;
+	            
+	            // Get the current team ID
+	            int weaponTeam = (int)teamInfo.Key;
+
+	            // Sync StatTrak values for the current team
+	            foreach (var (defindex, (statTrak, statTrakCount)) in statTrakWeapons)
 	            {
-	                if (!weaponInfo.StatTrak) continue;
+		            const string query = @"
+					    UPDATE `wp_player_skins` 
+					    SET `weapon_stattrak` = @StatTrak, 
+					        `weapon_stattrak_count` = @StatTrakCount
+					    WHERE `steamid` = @steamid 
+					      AND `weapon_defindex` = @weaponDefIndex
+					      AND `weapon_team` = @weaponTeam";
 
-	                const string queryUpdate = @"
-                    UPDATE `wp_player_skins` 
-                    SET `weapon_stattrak` = @stattrak,
-                        `weapon_stattrak_count` = @stattrakCount
-                    WHERE `steamid` = @steamid 
-                    AND `weapon_defindex` = @weaponDefIndex 
-                    AND `weapon_team` = @weaponTeam";
+	                var parameters = new
+	                {
+	                    steamid = player.SteamId,
+	                    weaponDefIndex = defindex,
+	                    StatTrak = statTrak,
+	                    StatTrakCount = statTrakCount,
+	                    weaponTeam
+	                };
 
-	                await connection.ExecuteAsync(
-	                    queryUpdate,
-	                    new
-	                    {
-	                        steamid = player.SteamId,
-	                        weaponDefIndex,
-	                        weaponTeam = (int)teamId,
-	                        stattrak = weaponInfo.StatTrak,
-	                        stattrakCount = weaponInfo.StatTrakCount
-	                    },
-	                    transaction
-	                );
+	                await connection.ExecuteAsync(query, parameters, transaction);
 	            }
 	        }
 
 	        await transaction.CommitAsync();
-	        
-	        // Refresh the player's weapons after the change
-	        WeaponPaints.Database?.RefreshPlayerWeaponsIfChanged(player.SteamId);
 	    }
 	    catch (Exception e)
 	    {
 	        Utility.Log($"Error syncing stattrak to database: {e.Message}");
 	    }
 	}
-
-	/// <summary>
-	/// Refreshes a player's skins by their SteamID
-	/// </summary>
-	/// <param name="steamId">The SteamID of the player</param>
-	/// <returns>True if the player was found and refreshed, false otherwise</returns>
-	internal bool RefreshPlayerBySteamId(string steamId)
-	{
-		try
-		{
-			// Simple rate limiting to prevent excessive refreshes for the same player
-			if (_lastPlayerRefresh.TryGetValue(steamId, out var lastRefreshTime) && 
-				(DateTime.UtcNow - lastRefreshTime).TotalMilliseconds < 300)
-			{
-				// Skip if we refreshed this player very recently (within 300ms)
-				return true;
-			}
-			
-			_lastPlayerRefresh[steamId] = DateTime.UtcNow;
-			
-			// Find player controller by SteamID
-			foreach (var player in Utilities.GetPlayers())
-			{
-				if (player == null || !player.IsValid || player.IsBot || player.SteamID.ToString() != steamId)
-					continue;
-					
-				// Found the player, create PlayerInfo
-				var playerInfo = new PlayerInfo
-				{
-					UserId = player.UserId,
-					Slot = player.Slot,
-					Index = (int)player.Index,
-					SteamId = steamId,
-					Name = player.PlayerName,
-					IpAddress = player.IpAddress?.Split(":")[0]
-				};
-				
-				// Execute database operations FIRST and wait for completion before refreshing
-				Task.Run(async () => 
-				{
-					try
-					{
-						// Get data from database and ensure it's complete before refreshing
-						await GetPlayerData(playerInfo);
-						
-						// After data is retrieved, then schedule the refresh on main thread
-						Server.NextFrame(() => {
-							// Fast refresh path - only update essential items
-							WeaponPaints.Instance.GivePlayerGloves(player);
-							WeaponPaints.Instance.RefreshWeapons(player);
-							WeaponPaints.GivePlayerAgent(player);
-							WeaponPaints.GivePlayerMusicKit(player);
-							WeaponPaints.Instance.AddTimer(0.05f, () => WeaponPaints.GivePlayerPin(player));
-						});
-					}
-					catch (Exception ex)
-					{
-						Utility.Log($"Error retrieving player data from database: {ex.Message}");
-					}
-				});
-				
-				return true;
-			}
-			
-			return false;
-		}
-		catch (Exception ex)
-		{
-			Utility.Log($"Error refreshing player by SteamID: {ex.Message}");
-			return false;
-		}
-	}
-
-	// Simple rate limiting dictionary to prevent excessive refreshes
-	private readonly ConcurrentDictionary<string, DateTime> _lastPlayerRefresh = new();
 }
