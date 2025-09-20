@@ -192,33 +192,6 @@ internal class WeaponSynchronization
 					_ => CsTeam.None,
 				};
 						
-				string[]? keyChainParts = row.weapon_keychain?.ToString().Split(';');
-
-				KeyChainInfo keyChainInfo = new KeyChainInfo();
-
-				if (keyChainParts!.Length == 5 &&
-				    uint.TryParse(keyChainParts[0], out uint keyChainId) &&
-				    float.TryParse(keyChainParts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float keyChainOffsetX) &&
-				    float.TryParse(keyChainParts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float keyChainOffsetY) &&
-				    float.TryParse(keyChainParts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float keyChainOffsetZ) &&
-				    uint.TryParse(keyChainParts[4], out uint keyChainSeed))
-				{
-					// Successfully parsed the values
-					keyChainInfo.Id = keyChainId;
-					keyChainInfo.OffsetX = keyChainOffsetX;
-					keyChainInfo.OffsetY = keyChainOffsetY;
-					keyChainInfo.OffsetZ = keyChainOffsetZ;
-					keyChainInfo.Seed = keyChainSeed;
-				}
-				else
-				{
-					// Failed to parse the values, default to 0
-					keyChainInfo.Id = 0;
-					keyChainInfo.OffsetX = 0f;
-					keyChainInfo.OffsetY = 0f;
-					keyChainInfo.OffsetZ = 0f;
-					keyChainInfo.Seed = 0;
-				}
 
 				// Create the WeaponInfo object
 				WeaponInfo weaponInfo = new WeaponInfo
@@ -227,75 +200,9 @@ internal class WeaponSynchronization
 					Seed = weaponSeed,
 					Wear = weaponWear,
 					Nametag = weaponNameTag,
-					KeyChain = keyChainInfo,
 					StatTrak = weaponStatTrak,
 					StatTrakCount = weaponStatTrakCount,
 				};
-
-				// Retrieve and parse sticker data (up to 5 slots)
-				for (int i = 0; i <= 4; i++)
-				{
-					// Access the sticker data dynamically using reflection
-					string stickerColumn = $"weapon_sticker_{i}";
-					var stickerData = ((IDictionary<string, object>)row!)[stickerColumn]; // Safely cast row to a dictionary
-
-					if (string.IsNullOrEmpty(stickerData.ToString())) continue;
-						
-					var parts = stickerData.ToString()!.Split(';');
-
-					// Check for both old format (7 parts) and new format (8 parts with slot)
-					if (parts.Length == 7)
-					{
-						// Old format: "id;schema;x;y;wear;scale;rotation" - use array index as slot
-						if (!uint.TryParse(parts[0], out uint stickerId) ||
-						    !uint.TryParse(parts[1], out uint stickerSchema) ||
-						    !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerOffsetX) ||
-						    !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerOffsetY) ||
-						    !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerWear) ||
-						    !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerScale) ||
-						    !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerRotation)) continue;
-							
-						StickerInfo stickerInfo = new StickerInfo
-						{
-							Id = stickerId,
-							Schema = stickerSchema,
-							OffsetX = stickerOffsetX,
-							OffsetY = stickerOffsetY,
-							Wear = stickerWear,
-							Scale = stickerScale,
-							Rotation = stickerRotation,
-							Slot = i // Use array index as slot for backward compatibility
-						};
-
-						weaponInfo.Stickers.Add(stickerInfo);
-					}
-					else if (parts.Length == 8)
-					{
-						// New format: "id;schema;x;y;wear;scale;rotation;slot" - use slot from data
-						if (!uint.TryParse(parts[0], out uint stickerId) ||
-						    !uint.TryParse(parts[1], out uint stickerSchema) ||
-						    !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerOffsetX) ||
-						    !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerOffsetY) ||
-						    !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerWear) ||
-						    !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerScale) ||
-						    !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerRotation) ||
-						    !int.TryParse(parts[7], out int stickerSlot)) continue;
-							
-						StickerInfo stickerInfo = new StickerInfo
-						{
-							Id = stickerId,
-							Schema = stickerSchema,
-							OffsetX = stickerOffsetX,
-							OffsetY = stickerOffsetY,
-							Wear = stickerWear,
-							Scale = stickerScale,
-							Rotation = stickerRotation,
-							Slot = stickerSlot // Use slot from database
-						};
-
-						weaponInfo.Stickers.Add(stickerInfo);
-					}
-				}
 					
 				if (weaponTeam == CsTeam.None)
 				{
@@ -671,50 +578,23 @@ internal class WeaponSynchronization
 
 			foreach (var team in teamsToCheck)
 			{
-				// Prepare sticker data
-				var stickerData = new List<string>();
-				for (int i = 0; i < 5; i++)
-				{
-					if (i < weaponData.Stickers.Count)
-					{
-						var sticker = weaponData.Stickers[i];
-						stickerData.Add($"{sticker.Id};{sticker.Schema};{sticker.OffsetX};{sticker.OffsetY};{sticker.Wear};{sticker.Scale};{sticker.Rotation};{sticker.Slot}");
-					}
-					else
-					{
-						stickerData.Add("0;0;0;0;0;0;0;0");
-					}
-				}
-
-				// Prepare keychain data
-				var keychainData = weaponData.Keychain.Id > 0 
-					? $"{weaponData.Keychain.Id};{weaponData.Keychain.OffsetX};{weaponData.Keychain.OffsetY};{weaponData.Keychain.OffsetZ};{weaponData.Keychain.Seed}"
-					: "0;0;0;0;0";
 
 				// Insert or update weapon skin data
 				const string query = @"
 					INSERT INTO `wp_player_skins` (
 						`steamid`, `weapon_team`, `weapon_defindex`, `weapon_paint_id`, 
 						`weapon_wear`, `weapon_seed`, `weapon_nametag`, `weapon_stattrak`, 
-						`weapon_stattrak_count`, `weapon_sticker_0`, `weapon_sticker_1`, 
-						`weapon_sticker_2`, `weapon_sticker_3`, `weapon_sticker_4`, `weapon_keychain`
+						`weapon_stattrak_count`
 					) VALUES (
 						@steamid, @weaponTeam, @weaponDefIndex, @paintId, 
-						@wear, @seed, @nameTag, @statTrak, @statTrakCount,
-						@sticker0, @sticker1, @sticker2, @sticker3, @sticker4, @keychain
+						@wear, @seed, @nameTag, @statTrak, @statTrakCount
 					) ON DUPLICATE KEY UPDATE
 						`weapon_paint_id` = @paintId,
 						`weapon_wear` = @wear,
 						`weapon_seed` = @seed,
 						`weapon_nametag` = @nameTag,
 						`weapon_stattrak` = @statTrak,
-						`weapon_stattrak_count` = @statTrakCount,
-						`weapon_sticker_0` = @sticker0,
-						`weapon_sticker_1` = @sticker1,
-						`weapon_sticker_2` = @sticker2,
-						`weapon_sticker_3` = @sticker3,
-						`weapon_sticker_4` = @sticker4,
-						`weapon_keychain` = @keychain";
+						`weapon_stattrak_count` = @statTrakCount";
 
 				await connection.ExecuteAsync(query, new
 				{
@@ -726,13 +606,7 @@ internal class WeaponSynchronization
 					seed = weaponData.Seed,
 					nameTag = weaponData.NameTag,
 					statTrak = weaponData.StatTrak,
-					statTrakCount = weaponData.StatTrakCount,
-					sticker0 = stickerData[0],
-					sticker1 = stickerData[1],
-					sticker2 = stickerData[2],
-					sticker3 = stickerData[3],
-					sticker4 = stickerData[4],
-					keychain = keychainData
+					statTrakCount = weaponData.StatTrakCount
 				});
 			}
 

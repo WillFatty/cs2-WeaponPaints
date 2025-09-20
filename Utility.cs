@@ -37,12 +37,6 @@ namespace WeaponPaints
 					        `weapon_nametag` VARCHAR(128) DEFAULT NULL,
 					        `weapon_stattrak` tinyint(1) NOT NULL DEFAULT 0,
 					        `weapon_stattrak_count` int(10) NOT NULL DEFAULT 0,
-					        `weapon_sticker_0` VARCHAR(128) NOT NULL DEFAULT '0;0;0;0;0;0;0' COMMENT 'id;schema;x;y;wear;scale;rotation',
-					        `weapon_sticker_1` VARCHAR(128) NOT NULL DEFAULT '0;0;0;0;0;0;0' COMMENT 'id;schema;x;y;wear;scale;rotation',
-					        `weapon_sticker_2` VARCHAR(128) NOT NULL DEFAULT '0;0;0;0;0;0;0' COMMENT 'id;schema;x;y;wear;scale;rotation',
-					        `weapon_sticker_3` VARCHAR(128) NOT NULL DEFAULT '0;0;0;0;0;0;0' COMMENT 'id;schema;x;y;wear;scale;rotation',
-					        `weapon_sticker_4` VARCHAR(128) NOT NULL DEFAULT '0;0;0;0;0;0;0' COMMENT 'id;schema;x;y;wear;scale;rotation',
-					        `weapon_keychain` VARCHAR(128) NOT NULL DEFAULT '0;0;0;0;0' COMMENT 'id;x;y;z;seed',
 					        UNIQUE (`steamid`, `weapon_team`, `weapon_defindex`) -- Add unique constraint here
 					    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;",
 
@@ -288,9 +282,7 @@ namespace WeaponPaints
 				Seed = 0,
 				StatTrak = 0,
 				StatTrakCount = 0,
-				NameTag = "",
-				Stickers = new List<StickerInfo>(),
-				Keychain = new KeyChainInfo()
+				NameTag = ""
 			};
 		}
 	}

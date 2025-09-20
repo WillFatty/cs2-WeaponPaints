@@ -179,18 +179,6 @@ public partial class WeaponPaints : BasePlugin, IPluginConfig<WeaponPaintsConfig
 				weaponInfo.StatTrakCount = weaponData.StatTrakCount;
 				weaponInfo.Nametag = weaponData.NameTag;
 
-				// Apply stickers
-				for (int i = 0; i < Math.Min(weaponData.Stickers.Count, 5); i++)
-				{
-					var sticker = weaponData.Stickers[i];
-					weaponInfo.SetSticker(i, (int)sticker.Id, (int)sticker.Schema, sticker.OffsetX, sticker.OffsetY, sticker.Wear, sticker.Scale, sticker.Rotation);
-				}
-
-				// Apply keychain
-				if (weaponData.Keychain.Id > 0)
-				{
-					weaponInfo.SetKeychain((int)weaponData.Keychain.Id, weaponData.Keychain.OffsetX, weaponData.Keychain.OffsetY, weaponData.Keychain.OffsetZ, (int)weaponData.Keychain.Seed);
-				}
 			}
 
 			// Refresh weapons to apply the changes
