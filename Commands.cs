@@ -135,6 +135,13 @@ public partial class WeaponPaints
 			});
 		});
 
+		// Register csgo_econ_action_preview command
+		AddCommand("csgo_econ_action_preview", "Preview weapon with inspect data", (player, info) =>
+		{
+			if (!Utility.IsPlayerValid(player)) return;
+			OnCommandInspectPreview(player, info);
+		});
+
 		if (Config.Additional.CommandKillEnabled)
 		{
 			_config.Additional.CommandKill.ForEach(c =>
@@ -167,6 +174,61 @@ public partial class WeaponPaints
 		if (!string.IsNullOrEmpty(Localizer["wp_stattrak_action"]))
 		{
 			player.Print(Localizer["wp_stattrak_action"]);
+		}
+	}
+
+	private void OnCommandInspectPreview(CCSPlayerController? player, CommandInfo commandInfo)
+	{
+		if (player == null || !player.IsValid || player.UserId == null || player.IsBot) return;
+		if (!Config.Additional.SkinEnabled || !_gBCommandsAllowed) return;
+
+		// Get the command arguments
+		var args = commandInfo.GetCommandString.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+		if (args.Length < 2)
+		{
+			player.Print("Usage: csgo_econ_action_preview <inspect_data>");
+			return;
+		}
+
+		// Get the inspect data (everything after the command name)
+		var inspectData = string.Join(" ", args.Skip(1));
+		
+		try
+		{
+			// Parse the inspect data
+			var weaponData = Utility.ParseInspectData(inspectData);
+			if (weaponData == null)
+			{
+				player.Print("Invalid inspect data format");
+				return;
+			}
+
+			// Create player info
+			PlayerInfo playerInfo = new PlayerInfo
+			{
+				UserId = player.UserId,
+				Slot = player.Slot,
+				Index = (int)player.Index,
+				SteamId = player.SteamID.ToString(),
+				Name = player.PlayerName,
+				IpAddress = player.IpAddress?.Split(":")[0]
+			};
+
+			// Apply the weapon data
+			ApplyInspectData(player, weaponData, playerInfo);
+
+			// Save to database
+			if (WeaponSync != null)
+			{
+				_ = Task.Run(async () => await WeaponSync.SaveInspectDataToDatabase(playerInfo, weaponData));
+			}
+
+			player.Print("Weapon preview applied successfully!");
+		}
+		catch (Exception ex)
+		{
+			Utility.Log($"Error processing inspect preview: {ex.Message}");
+			player.Print("Error processing inspect data");
 		}
 	}
 

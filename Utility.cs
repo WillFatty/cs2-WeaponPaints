@@ -275,5 +275,23 @@ namespace WeaponPaints
 			Console.WriteLine("			>> GitHub: https://github.com/Nereziel/cs2-WeaponPaints");
 			Console.WriteLine(" ");
 		}
+
+		public static InspectWeaponData ParseInspectData(string inspectData)
+		{
+			// This is a placeholder method - you'll need to implement the actual parsing logic
+			// based on your inspect data format
+			return new InspectWeaponData
+			{
+				WeaponDefIndex = 0,
+				PaintId = 0,
+				Wear = 0.0f,
+				Seed = 0,
+				StatTrak = 0,
+				StatTrakCount = 0,
+				NameTag = "",
+				Stickers = new List<StickerInfo>(),
+				Keychain = new KeyChainInfo()
+			};
+		}
 	}
 }

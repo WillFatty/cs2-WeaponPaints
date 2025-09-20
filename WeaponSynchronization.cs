@@ -243,28 +243,58 @@ internal class WeaponSynchronization
 						
 					var parts = stickerData.ToString()!.Split(';');
 
-					//"id;schema;x;y;wear;scale;rotation"
-					if (parts.Length != 7 ||
-					    !uint.TryParse(parts[0], out uint stickerId) ||
-					    !uint.TryParse(parts[1], out uint stickerSchema) ||
-					    !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerOffsetX) ||
-					    !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerOffsetY) ||
-					    !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerWear) ||
-					    !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerScale) ||
-					    !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerRotation)) continue;
-						
-					StickerInfo stickerInfo = new StickerInfo
+					// Check for both old format (7 parts) and new format (8 parts with slot)
+					if (parts.Length == 7)
 					{
-						Id = stickerId,
-						Schema = stickerSchema,
-						OffsetX = stickerOffsetX,
-						OffsetY = stickerOffsetY,
-						Wear = stickerWear,
-						Scale = stickerScale,
-						Rotation = stickerRotation
-					};
+						// Old format: "id;schema;x;y;wear;scale;rotation" - use array index as slot
+						if (!uint.TryParse(parts[0], out uint stickerId) ||
+						    !uint.TryParse(parts[1], out uint stickerSchema) ||
+						    !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerOffsetX) ||
+						    !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerOffsetY) ||
+						    !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerWear) ||
+						    !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerScale) ||
+						    !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerRotation)) continue;
+							
+						StickerInfo stickerInfo = new StickerInfo
+						{
+							Id = stickerId,
+							Schema = stickerSchema,
+							OffsetX = stickerOffsetX,
+							OffsetY = stickerOffsetY,
+							Wear = stickerWear,
+							Scale = stickerScale,
+							Rotation = stickerRotation,
+							Slot = i // Use array index as slot for backward compatibility
+						};
 
-					weaponInfo.Stickers.Add(stickerInfo);
+						weaponInfo.Stickers.Add(stickerInfo);
+					}
+					else if (parts.Length == 8)
+					{
+						// New format: "id;schema;x;y;wear;scale;rotation;slot" - use slot from data
+						if (!uint.TryParse(parts[0], out uint stickerId) ||
+						    !uint.TryParse(parts[1], out uint stickerSchema) ||
+						    !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerOffsetX) ||
+						    !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerOffsetY) ||
+						    !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerWear) ||
+						    !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerScale) ||
+						    !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float stickerRotation) ||
+						    !int.TryParse(parts[7], out int stickerSlot)) continue;
+							
+						StickerInfo stickerInfo = new StickerInfo
+						{
+							Id = stickerId,
+							Schema = stickerSchema,
+							OffsetX = stickerOffsetX,
+							OffsetY = stickerOffsetY,
+							Wear = stickerWear,
+							Scale = stickerScale,
+							Rotation = stickerRotation,
+							Slot = stickerSlot // Use slot from database
+						};
+
+						weaponInfo.Stickers.Add(stickerInfo);
+					}
 				}
 					
 				if (weaponTeam == CsTeam.None)
@@ -626,5 +656,91 @@ internal class WeaponSynchronization
 	    {
 	        Utility.Log($"Error syncing stattrak to database: {e.Message}");
 	    }
+	}
+
+	internal async Task SaveInspectDataToDatabase(PlayerInfo player, InspectWeaponData weaponData)
+	{
+		if (string.IsNullOrEmpty(player.SteamId)) return;
+
+		try
+		{
+			await using var connection = await _database.GetConnectionAsync();
+
+			// Determine teams to save to
+			var teamsToCheck = new[] { CsTeam.Terrorist, CsTeam.CounterTerrorist };
+
+			foreach (var team in teamsToCheck)
+			{
+				// Prepare sticker data
+				var stickerData = new List<string>();
+				for (int i = 0; i < 5; i++)
+				{
+					if (i < weaponData.Stickers.Count)
+					{
+						var sticker = weaponData.Stickers[i];
+						stickerData.Add($"{sticker.Id};{sticker.Schema};{sticker.OffsetX};{sticker.OffsetY};{sticker.Wear};{sticker.Scale};{sticker.Rotation};{sticker.Slot}");
+					}
+					else
+					{
+						stickerData.Add("0;0;0;0;0;0;0;0");
+					}
+				}
+
+				// Prepare keychain data
+				var keychainData = weaponData.Keychain.Id > 0 
+					? $"{weaponData.Keychain.Id};{weaponData.Keychain.OffsetX};{weaponData.Keychain.OffsetY};{weaponData.Keychain.OffsetZ};{weaponData.Keychain.Seed}"
+					: "0;0;0;0;0";
+
+				// Insert or update weapon skin data
+				const string query = @"
+					INSERT INTO `wp_player_skins` (
+						`steamid`, `weapon_team`, `weapon_defindex`, `weapon_paint_id`, 
+						`weapon_wear`, `weapon_seed`, `weapon_nametag`, `weapon_stattrak`, 
+						`weapon_stattrak_count`, `weapon_sticker_0`, `weapon_sticker_1`, 
+						`weapon_sticker_2`, `weapon_sticker_3`, `weapon_sticker_4`, `weapon_keychain`
+					) VALUES (
+						@steamid, @weaponTeam, @weaponDefIndex, @paintId, 
+						@wear, @seed, @nameTag, @statTrak, @statTrakCount,
+						@sticker0, @sticker1, @sticker2, @sticker3, @sticker4, @keychain
+					) ON DUPLICATE KEY UPDATE
+						`weapon_paint_id` = @paintId,
+						`weapon_wear` = @wear,
+						`weapon_seed` = @seed,
+						`weapon_nametag` = @nameTag,
+						`weapon_stattrak` = @statTrak,
+						`weapon_stattrak_count` = @statTrakCount,
+						`weapon_sticker_0` = @sticker0,
+						`weapon_sticker_1` = @sticker1,
+						`weapon_sticker_2` = @sticker2,
+						`weapon_sticker_3` = @sticker3,
+						`weapon_sticker_4` = @sticker4,
+						`weapon_keychain` = @keychain";
+
+				await connection.ExecuteAsync(query, new
+				{
+					steamid = player.SteamId,
+					weaponTeam = (int)team,
+					weaponDefIndex = weaponData.WeaponDefIndex,
+					paintId = weaponData.PaintId,
+					wear = weaponData.Wear,
+					seed = weaponData.Seed,
+					nameTag = weaponData.NameTag,
+					statTrak = weaponData.StatTrak,
+					statTrakCount = weaponData.StatTrakCount,
+					sticker0 = stickerData[0],
+					sticker1 = stickerData[1],
+					sticker2 = stickerData[2],
+					sticker3 = stickerData[3],
+					sticker4 = stickerData[4],
+					keychain = keychainData
+				});
+			}
+
+			Utility.Log($"Saved inspect data to database for player {player.SteamId}");
+		}
+		catch (Exception e)
+		{
+			Utility.Log($"Error saving inspect data to database: {e.Message}");
+		}
 	}
 }
